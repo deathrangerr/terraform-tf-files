@@ -31,6 +31,14 @@ resource "azurerm_public_ip" "for_vm" {
   location            = azurerm_resource_group.my-project.location
   allocation_method   = "Dynamic"
 }
+
+output "public_ip_id"{
+    value = azurerm_public_ip.for_vm.id
+}
+
+output "vm-public-ip"{
+    value = azurerm_public_ip.for_vm.ip_address
+}
 resource "azurerm_network_interface" "main" {
   name                = "${var.prefix}-nic"
   location            = azurerm_resource_group.my-project.location
@@ -82,3 +90,5 @@ resource "azurerm_virtual_machine" "main" {
     environment = "prod"
   }
 }
+
+
