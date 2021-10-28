@@ -1,7 +1,7 @@
 provider "aws" {
   region     = "ap-south-1"
-  access_key = "AKIAQCUJGX5BFFOXN545"
-  secret_key = "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"
+  access_key = ""
+  secret_key = ""
 }
 
 variable "s3_bucket_names" {
