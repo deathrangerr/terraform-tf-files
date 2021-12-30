@@ -1,3 +1,9 @@
+tf files to deploy eks in private subnet with pvt and public endpoints and with bastion host as well
+
+
+
+
+
 
 **Step 1:- Create `.tf` file for storing environment variables**
 
