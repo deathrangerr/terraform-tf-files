@@ -47,16 +47,97 @@ module "eks"{
             name = "Worker-Group-1"
             instance_type = "t3.micro"
             asg_desired_capacity = 2
-            additional_security_group_ids = [aws_security_group.worker_group_mgmt_one.id,aws_security_group.worker_group_mgmt_two.id]
-        },
-        {
-            name = "Worker-Group-2"
-            instance_type = "t3.micro"
-            asg_desired_capacity = 1
-            additional_security_group_ids = [aws_security_group.worker_group_mgmt_two.id,aws_security_group.worker_group_mgmt_one.id]
+            additional_security_group_ids = [aws_security_group.allow_all.id,aws_security_group.worker_group_mgmt_two.id,aws_security_group.worker_group_mgmt_one.id]
         },
     ]
 }
+
+
+resource "aws_iam_role" "eks_nodes" {
+  name = "eks-node-group-tuto"
+
+  assume_role_policy = <<POLICY
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ec2.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+POLICY
+}
+
+resource "aws_iam_role" "eks_cluster" {
+  name = "eks-cluster"
+
+  assume_role_policy = <<POLICY
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "eks.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+POLICY
+}
+
+resource "aws_iam_role_policy_attachment" "AmazonEKSClusterPolicy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+  role       = aws_iam_role.eks_cluster.name
+}
+
+resource "aws_iam_role_policy_attachment" "AmazonEKS_CNI_Policy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+  role       = aws_iam_role.eks_nodes.name
+}
+
+resource "aws_iam_role_policy_attachment" "AmazonEC2ContainerRegistryReadOnly" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+  role       = aws_iam_role.eks_nodes.name
+}
+
+resource "aws_iam_role_policy_attachment" "AmazonEKSServicePolicy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSServicePolicy"
+  role       = aws_iam_role.eks_cluster.name
+}
+
+resource "aws_iam_role_policy_attachment" "AmazonEKSWorkerNodePolicy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+  role       = aws_iam_role.eks_nodes.name
+}
+
+
+resource "aws_eks_node_group" "node" {
+  cluster_name    = local.cluster_name
+  node_group_name = "node_tuto"
+  node_role_arn   = aws_iam_role.eks_nodes.arn
+  subnet_ids = [module.vpc.public_subnets[0], module.vpc.public_subnets[1]]
+
+  scaling_config {
+    desired_size = 1
+    max_size     = 1
+    min_size     = 1
+  }
+
+  # Ensure that IAM Role permissions are created before and deleted after EKS Node Group handling.
+  # Otherwise, EKS will not be able to properly delete EC2 Instances and Elastic Network Interfaces.
+  depends_on = [
+    aws_iam_role_policy_attachment.AmazonEKSWorkerNodePolicy,
+    aws_iam_role_policy_attachment.AmazonEKS_CNI_Policy,
+    aws_iam_role_policy_attachment.AmazonEC2ContainerRegistryReadOnly,
+  ]
+}
+
 
 #data "aws_eks_cluster" "cluster" {
 #    name = module.eks.cluster_id
@@ -178,6 +259,28 @@ resource "aws_instance" "bastion" {
   key_name = "deployer-key"
   associate_public_ip_address = true
   subnet_id = module.vpc.public_subnets[0]
+
+  user_data = <<-EOF
+                #! /bin/bash
+                # Install Kubectl
+                sudo apt-get update
+                sudo apt-get install -y apt-transport-https ca-certificates curlsudo curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
+                echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+                sudo apt-get update
+                sudo apt-get install -y kubectl
+               
+                # Install eksctl
+                curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+                sudo mv /tmp/eksctl /usr/local/bin
+                # Install Helm
+                curl -fsSL -o get_helm.sh https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+                chmod 700 get_helm.sh
+                sh get_helm.sh
+                # Install argocd
+                sudo curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+                sudo chmod +x /usr/local/bin/argocd
+
+                EOF
 
 
   tags = {
