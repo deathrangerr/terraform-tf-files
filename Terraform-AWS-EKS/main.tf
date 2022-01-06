@@ -4,16 +4,16 @@ provider "aws" {
     secret_key = "${var.secret_key}"
 }
 
-data "aws_eks_cluster" "eks" {
+/*data "aws_eks_cluster" "eks" {
   name = module.eks.cluster_id
-}
+}*/
 
 
 data "aws_availability_zones" "azs" {
     state = "available"
 }
 
-data "aws_eks_cluster_auth" "eks" {
+/*data "aws_eks_cluster_auth" "eks" {
   name = module.eks.cluster_id
 }
 
@@ -23,7 +23,7 @@ provider "kubernetes" {
   cluster_ca_certificate = base64decode(data.aws_eks_cluster.eks.certificate_authority[0].data)
   token                  = data.aws_eks_cluster_auth.eks.token
 }
-module "eks"{
+/*module "eks"{
     source = "terraform-aws-modules/eks/aws"
     version = "17.1.0"
     cluster_name = local.cluster_name
@@ -132,6 +132,7 @@ resource "aws_iam_role_policy_attachment" "AmazonEKSWorkerNodePolicy" {
 #data "aws_eks_cluster_auth" "cluster" {
 #    name = module.eks.cluster_id
 #}
+*/
 resource "aws_security_group" "allow_all" {
   name        = "allow_web"
   description = "Allow WEB inbound traffic"
@@ -227,6 +228,47 @@ data "aws_ami" "ubuntu" {
   owners = ["099720109477"] # Canonical
 }
 
+
+
+
+
+resource "aws_iam_instance_profile" "dev-resources-iam-profile" {
+  name = "ec2_profile"
+  role = aws_iam_role.test_role.name
+  }
+
+
+resource "aws_iam_role" "test_role" {
+  name = "test_role"
+
+  assume_role_policy = <<EOF
+{
+    "Version": "2012-10-17",
+    "Statement": {
+      "Effect": "Allow",
+      "Sid" : "",
+      "Principal": {"Service": "ec2.amazonaws.com"},
+      "Action": "sts:AssumeRole"
+    }
+  }
+EOF
+}
+
+resource "aws_iam_role_policy_attachment" "test_attach" {
+  role       = aws_iam_role.test_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+
+resource "aws_ssm_activation" "foo" {
+  name               = "test_ssm_activation"
+  description        = "Test"
+  iam_role           = aws_iam_role.test_role.id
+  registration_limit = "5"
+  depends_on         = [aws_iam_role_policy_attachment.test_attach]
+}
+
+
+
 resource "aws_instance" "bastion" {
   ebs_block_device {
     device_name = "/dev/sda1"
@@ -235,6 +277,7 @@ resource "aws_instance" "bastion" {
   ami = data.aws_ami.ubuntu.id
   availability_zone = "us-east-1a"
   instance_type = "t2.micro"
+  iam_instance_profile = aws_iam_instance_profile.dev-resources-iam-profile.name 
   vpc_security_group_ids = [aws_security_group.allow_all.id]
   key_name = "deployer-key"
   associate_public_ip_address = true
@@ -242,6 +285,7 @@ resource "aws_instance" "bastion" {
 
   user_data = <<-EOF
                 #! /bin/bash
+                
                 # Install Kubectl
                 sudo apt update -y
                 sudo apt -y install curl apt-transport-https
@@ -261,6 +305,14 @@ resource "aws_instance" "bastion" {
                 # Install argocd
                 sudo curl -sSL -o /usr/local/bin/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
                 sudo chmod +x /usr/local/bin/argocd
+
+                #ssm
+                #!/bin/bash
+                sudo mkdir /tmp/ssm
+                cd /tmp/ssm
+                wget https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/debian_amd64/amazon-ssm-agent.debsudo dpkg -i amazon-ssm-agent.deb
+                sudo systemctl enable amazon-ssm-agent
+                rm amazon-ssm-agent.deb
 
                 EOF
 
