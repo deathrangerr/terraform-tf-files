@@ -31,7 +31,9 @@ module "eks"{
     subnets = module.vpc.private_subnets
 
     cluster_endpoint_private_access = true
-    cluster_endpoint_public_access  = true
+    cluster_endpoint_public_access  = false
+   # manage_aws_auth       = true
+
 
     tags = {
         Name = "Demo-EKS-Cluster"
@@ -42,14 +44,17 @@ module "eks"{
         root_volume_type = "gp2"
     }
 
-    worker_groups = [
-        {
-            name = "Worker-Group-1"
-            instance_type = "t3.micro"
-            asg_desired_capacity = 2
-            additional_security_group_ids = [aws_security_group.allow_all.id,aws_security_group.worker_group_mgmt_two.id,aws_security_group.worker_group_mgmt_one.id]
-        },
-    ]
+      node_groups = {
+    eks_nodes = {
+      desired_capacity = 3
+      max_capacity     = 3
+      min_capaicty     = 3
+
+      instance_type = "t2.small"
+    }
+  }
+
+  manage_aws_auth = false
 }
 
 
@@ -117,26 +122,7 @@ resource "aws_iam_role_policy_attachment" "AmazonEKSWorkerNodePolicy" {
 }
 
 
-resource "aws_eks_node_group" "node" {
-  cluster_name    = local.cluster_name
-  node_group_name = "node_tuto"
-  node_role_arn   = aws_iam_role.eks_nodes.arn
-  subnet_ids = [module.vpc.public_subnets[0], module.vpc.public_subnets[1]]
 
-  scaling_config {
-    desired_size = 1
-    max_size     = 1
-    min_size     = 1
-  }
-
-  # Ensure that IAM Role permissions are created before and deleted after EKS Node Group handling.
-  # Otherwise, EKS will not be able to properly delete EC2 Instances and Elastic Network Interfaces.
-  depends_on = [
-    aws_iam_role_policy_attachment.AmazonEKSWorkerNodePolicy,
-    aws_iam_role_policy_attachment.AmazonEKS_CNI_Policy,
-    aws_iam_role_policy_attachment.AmazonEC2ContainerRegistryReadOnly,
-  ]
-}
 
 
 #data "aws_eks_cluster" "cluster" {
@@ -241,12 +227,6 @@ data "aws_ami" "ubuntu" {
   owners = ["099720109477"] # Canonical
 }
 
-resource "aws_subnet" "foo" {
-  vpc_id            = module.vpc.vpc_id
-  availability_zone = "us-east-1a"
-  cidr_block        = "10.0.8.0/24"
-}
-
 resource "aws_instance" "bastion" {
   ebs_block_device {
     device_name = "/dev/sda1"
@@ -255,7 +235,7 @@ resource "aws_instance" "bastion" {
   ami = data.aws_ami.ubuntu.id
   availability_zone = "us-east-1a"
   instance_type = "t2.micro"
-  vpc_security_group_ids = [aws_security_group.allow_all.id,aws_security_group.worker_group_mgmt_two.id,aws_security_group.worker_group_mgmt_one.id]
+  vpc_security_group_ids = [aws_security_group.allow_all.id]
   key_name = "deployer-key"
   associate_public_ip_address = true
   subnet_id = module.vpc.public_subnets[0]
@@ -263,11 +243,13 @@ resource "aws_instance" "bastion" {
   user_data = <<-EOF
                 #! /bin/bash
                 # Install Kubectl
-                sudo apt-get update
-                sudo apt-get install -y apt-transport-https ca-certificates curlsudo curl -fsSLo /usr/share/keyrings/kubernetes-archive-keyring.gpg https://packages.cloud.google.com/apt/doc/apt-key.gpg
-                echo "deb [signed-by=/usr/share/keyrings/kubernetes-archive-keyring.gpg] https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
-                sudo apt-get update
-                sudo apt-get install -y kubectl
+                sudo apt update -y
+                sudo apt -y install curl apt-transport-https
+                curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+                echo "deb https://apt.kubernetes.io/ kubernetes-xenial main" | sudo tee /etc/apt/sources.list.d/kubernetes.list
+                sudo apt update
+                sudo apt -y install vim git curl wget kubelet kubeadm kubectl
+                sudo apt-mark hold kubelet kubeadm kubectl
                
                 # Install eksctl
                 curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
