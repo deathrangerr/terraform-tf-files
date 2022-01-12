@@ -61,26 +61,27 @@ resource "aws_security_group" "allow_all" {
 
 
 resource "aws_instance" "build" {
-  count = 2     # Here we are creating identical 4 machines.
+  count = 10     # Here we are creating identical 9 machines.
   ebs_block_device {
     device_name = "/dev/sda1"
-    volume_size = 20
+    volume_size = 40
   }
   ami = var.ami
-  availability_zone = "ap-south-1a"
-  instance_type = var.instance_type
+  availability_zone = "ap-southeast-1a"
+  instance_type = var.instance_type[0]
   vpc_security_group_ids = [aws_security_group.allow_all.id]
   user_data = <<-EOF
                 #!/bin/bash
                 sudo apt update
-                sudo apt install docker.io ansible -y
+                sudo apt install docker.io ansible maven tree openjdk-8-jdk -y
                 sudo apt install unzip zip -y
                 sed 's/PasswordAuthentication no/PasswordAuthentication yes/' -i /etc/ssh/sshd_config
                 systemctl restart sshd
                 service sshd restart
                 sudo adduser ubuntu --gecos "First Last,RoomNumber,WorkPhone,HomePhone" --disabled-password 
                 echo "ubuntu:Govtech@4488" | sudo chpasswd
-                sudo docker rm -f sonarqube &&  sudo docker run -d --name sonarqube -p 9000:9000 sonarqube
+                sudo docker run -d --name sonarqube -p 9000:9000 sonarqube:8.9.1-community
+                sudo docker start sonarqube
                 EOF
 
 
@@ -90,31 +91,64 @@ resource "aws_instance" "build" {
 }
 
 resource "aws_instance" "deploy" {
-  count = 2     # Here we are creating identical 4 machines.
+  count = 10     # Here we are creating identical 9 machines.
   ebs_block_device {
     device_name = "/dev/sda1"
-    volume_size = 20
+    volume_size = 10
   }
   ami = var.ami
-  availability_zone = "ap-south-1a"
-  instance_type = var.instance_type
+  availability_zone = "ap-southeast-1a"
+  instance_type = var.instance_type[1]
+  vpc_security_group_ids = [aws_security_group.allow_all.id]
+  user_data = <<-EOF
+                #!/bin/bash
+                sudo apt update -y
+                sudo apt install openjdk-8-jdk zip unzip maven tree -y
+                sed 's/PasswordAuthentication no/PasswordAuthentication yes/' -i /etc/ssh/sshd_config
+                systemctl restart sshd
+                service sshd restart
+                sudo adduser ubuntu --gecos "First Last,RoomNumber,WorkPhone,HomePhone" --disabled-password 
+                echo "ubuntu:Govtech@4488" | sudo chpasswd
+                EOF
+
+
+  tags = {
+    Name = "deploy-${count.index}"
+         }
+}
+
+
+resource "aws_instance" "bamboo-ci" {
+  count = 1     # Here we are creating identical 1 machines.
+  ebs_block_device {
+    device_name = "/dev/sda1"
+    volume_size = 100
+    volume_type = "standard"
+  }
+  ami = var.ami
+  availability_zone = "ap-southeast-1a"
+  instance_type = var.instance_type[2]
   vpc_security_group_ids = [aws_security_group.allow_all.id]
   user_data = <<-EOF
                 #!/bin/bash
                 sudo apt update
                 sudo apt install docker.io ansible -y
                 sudo apt install unzip zip -y
-                sed 's/PasswordAuthentication no/PasswordAuthentication yes/' -i /etc/ssh/sshd_config
-                systemctl restart sshd
-                service sshd restart
+                sudo apt update
+                sudo apt install openjdk-8-jdk vim wget docker.io zip unzip python maven tree -y
+                sudo sed 's/PasswordAuthentication no/PasswordAuthentication yes/' -i /etc/ssh/sshd_config
+                sudo systemctl restart sshd
+                sudo service sshd restart
                 sudo adduser ubuntu --gecos "First Last,RoomNumber,WorkPhone,HomePhone" --disabled-password 
                 echo "ubuntu:Govtech@4488" | sudo chpasswd
-                sudo docker rm -f sonarqube &&  sudo docker run -d --name sonarqube -p 9000:9000 sonarqube
+                sudo docker volume create --name nexus-data 
+                sudo docker run -d -p 8081:8081 --name nexus -v nexus-data:/nexus-data sonatype/nexus3
+                sudo docker start nexus
                 EOF
 
 
   tags = {
-    Name = "deploy-${count.index}"
+    Name = "bamboo-ci"
          }
 }
 
